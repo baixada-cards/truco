@@ -1,0 +1,1 @@
+"""Baixada Truco integration tooling."""

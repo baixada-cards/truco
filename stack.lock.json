@@ -1,0 +1,48 @@
+{
+  "format": "baixada-truco-stack/v1",
+  "components": {
+    "spec": {
+      "repository": "https://github.com/baixada-cards/truco-spec.git",
+      "revision": "5142e40a38003b4e4f2cb170b9ffaa33df27ce98",
+      "version": "1.0.0-rc.1",
+      "role": "contract"
+    },
+    "engine": {
+      "repository": "https://github.com/baixada-cards/truco-engine.git",
+      "revision": "5e67d19a710c8396a44dc51e8fae14f12201a3d4",
+      "version": "0.1.0",
+      "role": "runtime"
+    },
+    "solver": {
+      "repository": "https://github.com/baixada-cards/truco-solver.git",
+      "revision": "6ae30792c7b0c653d2c1d4d71f5191e76006f79e",
+      "contract_revision": "903587d3d6279c66418cee50790ff049dcced793",
+      "version": "0.1.0",
+      "role": "research"
+    },
+    "bots": {
+      "repository": "https://github.com/baixada-cards/truco-bots.git",
+      "revision": "b34a0be135daf20bad67a6872022883a9b2c4b69",
+      "version": "0.1.0",
+      "role": "runtime"
+    },
+    "server": {
+      "repository": "https://github.com/baixada-cards/truco-server.git",
+      "revision": "7f4aa14ab6b224f5db5de0c1f6e349c73eb4069b",
+      "version": "0.1.0",
+      "role": "runtime"
+    },
+    "design_system": {
+      "repository": "https://github.com/baixada-cards/design-system.git",
+      "revision": "82638b7cdabbb56a4bce7b953e8571847bf6fda9",
+      "version": "0.1.0",
+      "role": "design"
+    },
+    "web": {
+      "repository": "https://github.com/baixada-cards/truco-web.git",
+      "revision": "942df304dfb5cac9d3351b8f9479500bd418c32b",
+      "version": "0.1.0",
+      "role": "product"
+    }
+  }
+}
