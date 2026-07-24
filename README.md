@@ -60,6 +60,30 @@ make smoke-installed
 `make smoke` combines materialization, dependency installation through Socket
 Firewall, and the final command when Chromium is already available.
 
+## Production release contract
+
+The manually dispatched **Production** workflow always verifies the selected
+stack. Its `deploy` switch defaults to false. A real deployment is available
+only from the exact current protected `main` revision and through the
+`production` GitHub environment.
+
+The workflow:
+
+1. materializes the exact server and web revisions from `stack.lock.json`;
+2. authenticates to Google Cloud with short-lived GitHub OIDC credentials;
+3. downloads and checksum-verifies the licensed runtime audio directly from
+   its private bucket;
+4. assembles only Git-tracked source plus those five locked runtime files;
+5. transfers that release over host-key-pinned SSH; and
+6. builds, switches, checks, and automatically rolls back the two services if
+   the new release fails its local health checks.
+
+No licensed file is committed, cached, or uploaded as a GitHub artifact.
+Deployment identities, exact host inventory, environment-secret setup, the
+one-time Droplet migration, and operator procedures remain private in
+`baixada-ops`. See [`deploy/README.md`](deploy/README.md) for the public
+contract and prerequisites.
+
 ## Updating compatibility
 
 1. Merge and verify the component change in its owning repository.
