@@ -1,0 +1,201 @@
+name: Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy after verification (defaults to a safe dry run)
+        required: true
+        type: boolean
+        default: false
+      reason:
+        description: Reason for this production verification or deployment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require the exact protected main revision
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          test "$GITHUB_SHA" = "$(git rev-parse origin/main)"
+
+      - name: Check offline invariants
+        run: make check
+
+      - name: Verify exact public compatibility
+        run: make verify
+
+  deploy:
+    name: Deploy
+    if: ${{ inputs.deploy }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: production
+      url: https://truco.baixada.cards
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require passing CI for the exact main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          deploy_sha="$(git rev-parse HEAD)"
+          test "$deploy_sha" = "$(git rev-parse origin/main)"
+          test "$GITHUB_SHA" = "$deploy_sha"
+          conclusion="$(
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$deploy_sha" \
+              --branch main \
+              --event push \
+              --limit 10 \
+              --json conclusion,createdAt \
+              --jq 'sort_by(.createdAt) | last | .conclusion'
+          )"
+          test "$conclusion" = success
+          echo "DEPLOY_SHA=$deploy_sha" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.12.0
+
+      - name: Install Socket Firewall
+        env:
+          SFW_SHA256: 4dc46b626a7c5b81c0b54e1984ee53be5a628dbfb2f55ab14e9b04c8a134db6a
+          SFW_URL: https://github.com/SocketDev/sfw-free/releases/download/v1.13.1/sfw-free-linux-x86_64
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            "$SFW_URL" \
+            --output "$RUNNER_TEMP/sfw"
+          echo "$SFW_SHA256  $RUNNER_TEMP/sfw" | sha256sum --check -
+          install -m 0755 "$RUNNER_TEMP/sfw" "$RUNNER_TEMP/bin/sfw"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Install pnpm
+        run: sfw npm install --global pnpm@10.26.2
+
+      - name: Materialize exact deployable components
+        run: |
+          python3 scripts/materialize.py --component server --refresh
+          python3 scripts/materialize.py --component web --refresh
+          sfw pnpm --dir .components/web install --frozen-lockfile
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.BAIXADA_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.BAIXADA_GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.BAIXADA_GCP_PROJECT_ID }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: 575.0.1
+
+      - name: Materialize and verify licensed runtime audio
+        env:
+          BAIXADA_PRIVATE_AUDIO_GCS_URI: ${{ secrets.BAIXADA_PRIVATE_AUDIO_GCS_URI }}
+        run: |
+          pnpm --dir .components/web audio:sync-private
+          pnpm --dir .components/web audio:verify-private
+
+      - name: Assemble the minimal release tree
+        run: |
+          python3 deploy/assemble_release.py \
+            --server .components/server \
+            --web .components/web \
+            --destination "$RUNNER_TEMP/release"
+
+      - name: Install pinned SSH identity and host key
+        env:
+          DEPLOY_KEY: ${{ secrets.DROPLET_DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DROPLET_SSH_KNOWN_HOSTS }}
+          DEPLOY_USER: ${{ secrets.DROPLET_USER }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          mkdir -p "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/ssh/id"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/ssh/id" "$RUNNER_TEMP/ssh/known_hosts"
+          ssh-keygen -F "$DEPLOY_HOST" -f "$RUNNER_TEMP/ssh/known_hosts" >/dev/null
+
+      - name: Transfer the exact release tree
+        env:
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          DEPLOY_USER: ${{ secrets.DROPLET_USER }}
+        run: |
+          set -euo pipefail
+          ssh_options=(
+            -i "$RUNNER_TEMP/ssh/id"
+            -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+          )
+          release_dir="/opt/truco/releases/$DEPLOY_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p '$release_dir'"
+          rsync -az --delete \
+            -e "ssh -i $RUNNER_TEMP/ssh/id -o UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts -o StrictHostKeyChecking=yes" \
+            "$RUNNER_TEMP/release/" \
+            "$DEPLOY_USER@$DEPLOY_HOST:$release_dir/"
+
+      - name: Build, activate, and locally verify
+        env:
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          DEPLOY_USER: ${{ secrets.DROPLET_USER }}
+        run: |
+          set -euo pipefail
+          ssh_options=(
+            -i "$RUNNER_TEMP/ssh/id"
+            -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+          )
+          release_dir="/opt/truco/releases/$DEPLOY_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash '$release_dir/deploy/remote_deploy.sh' '$release_dir' '$DEPLOY_SHA' 'main@$DEPLOY_SHA'"
+
+      - name: Verify the public endpoint
+        run: curl --fail --silent --show-error --location https://truco.baixada.cards/en >/dev/null

@@ -4,7 +4,8 @@
 
 This repository owns Baixada Truco compatibility: exact public component
 selection, nested-lock verification, source materialization, and the assembled
-browser smoke test. It is an integration root, not a source monorepo.
+browser smoke test. It also owns the public, manually dispatched production
+release contract. It is an integration root, not a source monorepo.
 
 ## Boundaries
 
@@ -15,6 +16,10 @@ browser smoke test. It is an integration root, not a source monorepo.
 - Private operations, deployment identities, live inventories, credentials,
   licensed audio, and solver artifacts belong in `baixada-ops` or their
   approved private stores.
+- Production deployments must be manual, target the exact protected `main`
+  revision, and obtain private runtime assets through short-lived Google OIDC.
+- Never add a long-lived cloud key, host inventory, secret value, licensed
+  audio file, or uploaded release artifact to this repository.
 
 ## Workflow
 
@@ -22,6 +27,8 @@ browser smoke test. It is an integration root, not a source monorepo.
 - Run `make check` and `make verify` for every lock change.
 - Run `make smoke` when the runtime stack changes; Chromium must already be
   installed locally.
+- Run `make test-release` when the release assembler, remote deploy script, or
+  production workflow changes.
 - Use `sfw` for public-registry package fetches.
 - Sign commits.
 
