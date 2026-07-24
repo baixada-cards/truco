@@ -1,4 +1,4 @@
-.PHONY: check materialize smoke smoke-installed test-release verify
+.PHONY: check materialize smoke smoke-installed verify
 
 check:
 	python3 scripts/check_stack.py
@@ -9,9 +9,6 @@ verify:
 
 materialize:
 	python3 scripts/materialize.py
-
-test-release:
-	python3 -m unittest tests.test_release
 
 smoke:
 	python3 scripts/materialize.py --component web

@@ -63,6 +63,12 @@ jobs:
       contents: read
       actions: read
       id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.BAIXADA_GCP_PROJECT_ID }}
+      GCP_REGION: us-west1
+      GCP_ARTIFACT_REPOSITORY: containers
+      SERVER_SERVICE: truco-server
+      WEB_SERVICE: truco-web
 
     steps:
       - name: Check out repository
@@ -140,62 +146,186 @@ jobs:
           pnpm --dir .components/web audio:sync-private
           pnpm --dir .components/web audio:verify-private
 
-      - name: Assemble the minimal release tree
-        run: |
-          python3 deploy/assemble_release.py \
-            --server .components/server \
-            --web .components/web \
-            --destination "$RUNNER_TEMP/release"
-
-      - name: Install pinned SSH identity and host key
-        env:
-          DEPLOY_KEY: ${{ secrets.DROPLET_DEPLOY_SSH_PRIVATE_KEY }}
-          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DROPLET_SSH_KNOWN_HOSTS }}
-          DEPLOY_USER: ${{ secrets.DROPLET_USER }}
+      - name: Build and push immutable images
         run: |
           set -euo pipefail
-          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]
-          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
-          mkdir -p "$RUNNER_TEMP/ssh"
-          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/ssh/id"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
-          chmod 600 "$RUNNER_TEMP/ssh/id" "$RUNNER_TEMP/ssh/known_hosts"
-          ssh-keygen -F "$DEPLOY_HOST" -f "$RUNNER_TEMP/ssh/known_hosts" >/dev/null
+          registry="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}"
+          server_revision="$(jq -r '.components.server.revision' stack.lock.json)"
+          web_revision="$(jq -r '.components.web.revision' stack.lock.json)"
+          server_tag="${registry}/${SERVER_SERVICE}:${server_revision}"
+          web_tag="${registry}/${WEB_SERVICE}:${web_revision}"
 
-      - name: Transfer the exact release tree
-        env:
-          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
-          DEPLOY_USER: ${{ secrets.DROPLET_USER }}
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          docker buildx build \
+            --platform linux/amd64 \
+            --push \
+            --tag "$server_tag" \
+            .components/server
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg NEXT_PUBLIC_SHOW_DEV_CONTROLS=false \
+            --build-arg NEXT_PUBLIC_STUDY_LAB_LINKS=false \
+            --build-arg NEXT_PUBLIC_STUDY_MANIFEST_URL=https://storage.googleapis.com/truco-study-artifacts/releases/20260717-full-225-v1/manifest.json \
+            --push \
+            --tag "$web_tag" \
+            .components/web
+
+          server_digest="$(
+            gcloud artifacts docker images describe "$server_tag" \
+              --format='value(image_summary.digest)'
+          )"
+          web_digest="$(
+            gcloud artifacts docker images describe "$web_tag" \
+              --format='value(image_summary.digest)'
+          )"
+          test -n "$server_digest"
+          test -n "$web_digest"
+          echo "SERVER_IMAGE=${registry}/${SERVER_SERVICE}@${server_digest}" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE=${registry}/${WEB_SERVICE}@${web_digest}" >> "$GITHUB_ENV"
+
+      - name: Deploy, smoke-test, and roll back on failure
         run: |
           set -euo pipefail
-          ssh_options=(
-            -i "$RUNNER_TEMP/ssh/id"
-            -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts"
-            -o StrictHostKeyChecking=yes
-          )
-          release_dir="/opt/truco/releases/$DEPLOY_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "mkdir -p '$release_dir'"
-          rsync -az --delete \
-            -e "ssh -i $RUNNER_TEMP/ssh/id -o UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts -o StrictHostKeyChecking=yes" \
-            "$RUNNER_TEMP/release/" \
-            "$DEPLOY_USER@$DEPLOY_HOST:$release_dir/"
 
-      - name: Build, activate, and locally verify
-        env:
-          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
-          DEPLOY_USER: ${{ secrets.DROPLET_USER }}
-        run: |
-          set -euo pipefail
-          ssh_options=(
-            -i "$RUNNER_TEMP/ssh/id"
-            -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts"
-            -o StrictHostKeyChecking=yes
-          )
-          release_dir="/opt/truco/releases/$DEPLOY_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash '$release_dir/deploy/remote_deploy.sh' '$release_dir' '$DEPLOY_SHA' 'main@$DEPLOY_SHA'"
+          current_revision() {
+            gcloud run services describe "$1" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format=json 2>/dev/null |
+              jq -r '[.status.traffic[]? | select(.percent == 100)][0].revisionName // empty' ||
+              true
+          }
 
-      - name: Verify the public endpoint
-        run: curl --fail --silent --show-error --location https://truco.baixada.cards/en >/dev/null
+          previous_server="$(current_revision "$SERVER_SERVICE")"
+          previous_web="$(current_revision "$WEB_SERVICE")"
+
+          rollback() {
+            exit_code=$?
+            trap - ERR
+            if [ -n "$previous_web" ]; then
+              gcloud run services update-traffic "$WEB_SERVICE" \
+                --project "$GCP_PROJECT_ID" \
+                --region "$GCP_REGION" \
+                --to-revisions="${previous_web}=100" \
+                --quiet || true
+            fi
+            if [ -n "$previous_server" ]; then
+              gcloud run services update-traffic "$SERVER_SERVICE" \
+                --project "$GCP_PROJECT_ID" \
+                --region "$GCP_REGION" \
+                --to-revisions="${previous_server}=100" \
+                --quiet || true
+            fi
+            exit "$exit_code"
+          }
+          trap rollback ERR
+
+          gcloud run deploy "$SERVER_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --image "$SERVER_IMAGE" \
+            --service-account "truco-server-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+            --execution-environment gen1 \
+            --cpu 0.25 \
+            --memory 512Mi \
+            --concurrency 1 \
+            --cpu-throttling \
+            --no-cpu-boost \
+            --min 0 \
+            --max 1 \
+            --min-instances 0 \
+            --max-instances 1 \
+            --timeout 30s \
+            --port 8080 \
+            --ingress all \
+            --no-session-affinity \
+            --no-allow-unauthenticated \
+            --set-secrets OPENROUTER_API_KEY=truco-openrouter-api-key:latest \
+            --set-env-vars "NODE_ENV=production,TRUCO_SESSION_IDLE_TTL_SECONDS=1800,TRUCO_SESSION_MAX_ACTIVE_PER_SUBJECT=5,TRUCO_SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS=300,TRUCO_SESSION_CREATE_RATE_LIMIT_MAX=10,TRUCO_OPENROUTER_MODEL=google/gemini-3.1-flash-lite,TRUCO_OPENROUTER_REFERER=https://truco.baixada.cards,TRUCO_OPENROUTER_TITLE=Baixada Truco" \
+            --labels "baixada-component=truco-server,baixada-stack=${DEPLOY_SHA}" \
+            --quiet
+
+          server_url="$(
+            gcloud run services describe "$SERVER_SERVICE" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format='value(status.url)'
+          )"
+          test -n "$server_url"
+
+          gcloud run services add-iam-policy-binding "$SERVER_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --member "serviceAccount:truco-web-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+            --role roles/run.invoker \
+            --quiet
+
+          gcloud run deploy "$WEB_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --image "$WEB_IMAGE" \
+            --service-account "truco-web-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+            --execution-environment gen1 \
+            --cpu 0.5 \
+            --memory 512Mi \
+            --concurrency 1 \
+            --cpu-throttling \
+            --no-cpu-boost \
+            --min 0 \
+            --max 1 \
+            --min-instances 0 \
+            --max-instances 1 \
+            --timeout 60s \
+            --port 8080 \
+            --ingress all \
+            --no-session-affinity \
+            --allow-unauthenticated \
+            --set-secrets TRUCO_ANON_COOKIE_SECRET=truco-anonymous-cookie-secret:latest \
+            --set-env-vars "NODE_ENV=production,TRUCO_ENGINE_SERVICE_URL=${server_url},TRUCO_ENGINE_SERVICE_AUDIENCE=${server_url},STUDY_LAB_MODE=stealth,STUDY_MANIFEST_URL=https://storage.googleapis.com/truco-study-artifacts/releases/20260717-full-225-v1/manifest.json" \
+            --labels "baixada-component=truco-web,baixada-stack=${DEPLOY_SHA}" \
+            --quiet
+
+          web_url="$(
+            gcloud run services describe "$WEB_SERVICE" \
+              --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" \
+              --format='value(status.url)'
+          )"
+          test -n "$web_url"
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --location "${web_url}/en" >/dev/null; then
+              break
+            fi
+            test "$attempt" -lt 30
+            sleep 2
+          done
+
+          curl --fail --silent --show-error \
+            --cookie-jar "$RUNNER_TEMP/smoke.cookies" \
+            --header 'content-type: application/json' \
+            --data '{"humanPlayer":0,"startingDealer":0,"botKind":"random","seed":20260724}' \
+            "${web_url}/api/game/session" |
+            jq -e '.matchId | strings' >/dev/null
+
+          for audio in \
+            card-hide-flip-pse-bw-bd3-ucotv.m4a \
+            raise-decline-card-stack-pse-bw-bd3hl-dgbny.m4a \
+            raise-table-slap-firm-pse-of-g9loz.m4a \
+            raise-wood-table-hard-pse-kcv3-sjun9.m4a \
+            reraise-lamp-creak-pse-gen-ys39g.m4a
+          do
+            curl --fail --silent --show-error \
+              "${web_url}/audio/farol/${audio}" >/dev/null
+          done
+
+          trap - ERR
+          {
+            echo "### Cloud Run production deployment"
+            echo
+            echo "- Stack: \`${DEPLOY_SHA}\`"
+            echo "- Server image: \`${SERVER_IMAGE}\`"
+            echo "- Web image: \`${WEB_IMAGE}\`"
+            echo "- Web service: ${web_url}"
+            echo "- Smoke test: page, real match creation, and five licensed cues passed"
+          } >> "$GITHUB_STEP_SUMMARY"

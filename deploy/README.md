@@ -1,62 +1,44 @@
 # Production deployment contract
 
-This directory contains the public, auditable mechanics for assembling and
-activating a Baixada Truco production release. It deliberately contains no
-hostnames, credentials, cloud resource names, live environment values, or
-licensed files.
+The manually dispatched `Production` workflow is the public, auditable
+deployment contract for Baixada Truco. It contains no credentials, private
+resource inventory, or licensed files.
 
-## Safety boundary
+Every dispatch verifies the exact protected `main` revision and the complete
+public compatibility graph. The `deploy` input defaults to `false`. A real
+deployment additionally requires a passing `CI` run for the same revision and
+the protected `production` GitHub environment.
 
-The `Production` GitHub Actions workflow is manual-only. Every dispatch runs
-the compatibility checks; the `deploy` input defaults to false. The deploy job
-also requires:
+## Release construction
 
-- the workflow revision to equal the current protected `main` revision;
-- approval and secrets from the `production` GitHub environment;
-- a passing `CI` run for that same revision;
-- short-lived Google Workload Identity Federation credentials;
-- a pinned SSH `known_hosts` entry; and
-- a Droplet already prepared for Node 24 and the `truco-server` binary name.
+The workflow:
 
-The workflow never uploads a release artifact. Licensed runtime audio moves
-directly from private Google Cloud Storage into the ephemeral runner and then
-over SSH as part of the release tree.
+1. materializes the exact server and web commits from `stack.lock.json`;
+2. obtains short-lived Google credentials through GitHub OIDC;
+3. downloads the five licensed runtime cues from private GCS and verifies the
+   public byte-size/SHA-256 lock;
+4. builds both production containers on the ephemeral runner;
+5. pushes them to Artifact Registry and resolves immutable image digests; and
+6. deploys those digests to two independent Cloud Run services.
 
-## Release contents
+The licensed cues exist only in the web image and the ephemeral build
+workspace. They are never committed, cached, or uploaded as Actions artifacts.
 
-`assemble_release.py` copies Git-tracked files from the exact server and web
-checkouts selected by `stack.lock.json`. It separately verifies and copies the
-five files described by the web repository's `private-audio.lock.json`.
-Working-tree debris, Git metadata, dependencies, build outputs, test reports,
-environment files, credential files, and symlinks are rejected or excluded.
+## Runtime boundary
 
-The resulting layout is:
+`truco-web` is public. `truco-server` requires IAM authentication and accepts
+traffic only from the dedicated web runtime identity. The web BFF obtains
+short-lived Google identity tokens from the Cloud Run metadata server, so
+browser clients never receive the server origin or an invocation credential.
 
-```text
-release/
-  Cargo.toml
-  Cargo.lock
-  crates/
-  truco-frontend/
-  deploy/remote_deploy.sh
-  RELEASE.json
-```
+Both services use request-based billing, zero minimum instances, one maximum
+instance, fractional CPU, and concurrency one. This preserves the server's
+in-memory session model while bounding scale-out.
 
-## Host activation
+After deployment, the workflow checks the new `run.app` web origin, creates a
+real random-bot match through the BFF, and fetches all five licensed cues. If a
+deployment or smoke check fails and a prior revision exists, traffic is
+returned to the prior web and server revisions.
 
-`remote_deploy.sh` fails before building unless the host already has:
-
-- Node.js 24 or newer, pnpm, Socket Firewall, Rust/Cargo, curl, and systemd;
-- `/etc/truco/truco.env`;
-- `truco-engine.service` configured for
-  `/opt/truco/current/target/release/truco-server`; and
-- `truco-frontend.service` configured against
-  `/opt/truco/current/truco-frontend`.
-
-After frozen installs and locked builds, it atomically updates
-`/opt/truco/current`, restarts both services, and checks the local server and
-web endpoints. Any failure after the switch restores the previous symlink and
-restarts the previous release.
-
-Exact infrastructure setup, first migration, external smoke checks, and manual
-rollback procedures are maintained in the private `baixada-ops` repository.
+Exact project identities, resource names, asset generations, DNS cutover, and
+operator rollback procedures remain in the private `baixada-ops` repository.
