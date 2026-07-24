@@ -73,16 +73,17 @@ The workflow:
 2. authenticates to Google Cloud with short-lived GitHub OIDC credentials;
 3. downloads and checksum-verifies the licensed runtime audio directly from
    its private bucket;
-4. assembles only Git-tracked source plus those five locked runtime files;
-5. transfers that release over host-key-pinned SSH; and
-6. builds, switches, checks, and automatically rolls back the two services if
-   the new release fails its local health checks.
+4. builds and pushes independent server and web images, then resolves their
+   immutable Artifact Registry digests;
+5. deploys a private server service and a public web service to Cloud Run; and
+6. creates a real match through the BFF, verifies all five cues, and restores
+   prior Cloud Run revisions if a deployment check fails.
 
 No licensed file is committed, cached, or uploaded as a GitHub artifact.
-Deployment identities, exact host inventory, environment-secret setup, the
-one-time Droplet migration, and operator procedures remain private in
-`baixada-ops`. See [`deploy/README.md`](deploy/README.md) for the public
-contract and prerequisites.
+Deployment identities, exact resource inventory, environment-secret setup,
+DNS migration, and operator procedures remain private in `baixada-ops`. See
+[`deploy/README.md`](deploy/README.md) for the public contract and
+prerequisites.
 
 ## Updating compatibility
 
