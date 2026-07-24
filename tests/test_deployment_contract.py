@@ -36,6 +36,8 @@ class DeploymentContractTests(unittest.TestCase):
     def test_workflow_smokes_real_session_and_rolls_back_traffic(self) -> None:
         self.assertIn("/api/game/session", self.workflow)
         self.assertIn("botKind", self.workflow)
+        self.assertIn('smoke-match.json', self.workflow)
+        self.assertGreaterEqual(self.workflow.count("for attempt in $(seq 1 30)"), 2)
         self.assertIn("update-traffic", self.workflow)
         self.assertIn("trap rollback ERR", self.workflow)
 

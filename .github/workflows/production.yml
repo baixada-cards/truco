@@ -301,12 +301,20 @@ jobs:
             sleep 2
           done
 
-          curl --fail --silent --show-error \
-            --cookie-jar "$RUNNER_TEMP/smoke.cookies" \
-            --header 'content-type: application/json' \
-            --data '{"humanPlayer":0,"startingDealer":0,"botKind":"random","seed":20260724}' \
-            "${web_url}/api/game/session" |
-            jq -e '.matchId | strings' >/dev/null
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              --cookie-jar "$RUNNER_TEMP/smoke.cookies" \
+              --header 'content-type: application/json' \
+              --data '{"humanPlayer":0,"startingDealer":0,"botKind":"random","seed":20260724}' \
+              --output "$RUNNER_TEMP/smoke-match.json" \
+              "${web_url}/api/game/session" &&
+              jq -e '.matchId | strings' "$RUNNER_TEMP/smoke-match.json" >/dev/null
+            then
+              break
+            fi
+            test "$attempt" -lt 30
+            sleep 2
+          done
 
           for audio in \
             card-hide-flip-pse-bw-bd3-ucotv.m4a \
