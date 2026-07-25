@@ -15,7 +15,7 @@
     },
     "solver": {
       "repository": "https://github.com/baixada-cards/truco-solver.git",
-      "revision": "6ae30792c7b0c653d2c1d4d71f5191e76006f79e",
+      "revision": "8fa10b4b93526b3f7fa6a49ce21de44aae745c5c",
       "contract_revision": "903587d3d6279c66418cee50790ff049dcced793",
       "version": "0.1.0",
       "role": "research"
