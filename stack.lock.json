@@ -34,13 +34,13 @@
     },
     "design_system": {
       "repository": "https://github.com/baixada-cards/design-system.git",
-      "revision": "93c9afef9ac2fa3756f12fe22bc35a079ec87aff",
+      "revision": "5e032f5fe91a92f43794a43599ed51c8aa7e9dbd",
       "version": "0.1.0",
       "role": "design"
     },
     "web": {
       "repository": "https://github.com/baixada-cards/truco-web.git",
-      "revision": "a3986ded352c28325fe908a74553d431a98f13d3",
+      "revision": "48a2aa7eaad8c66d42255145fe65d492aeec051e",
       "version": "0.1.0",
       "role": "product"
     }
