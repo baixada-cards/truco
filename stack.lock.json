@@ -40,7 +40,7 @@
     },
     "web": {
       "repository": "https://github.com/baixada-cards/truco-web.git",
-      "revision": "348ba281fbbfe1c040925c65e4a8a4a88537400b",
+      "revision": "ab6adc1e1c79fe1fda7396de0ec4f50ea9640a54",
       "version": "0.1.0",
       "role": "product"
     }
