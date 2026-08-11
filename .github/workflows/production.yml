@@ -164,7 +164,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --build-arg NEXT_PUBLIC_SHOW_DEV_CONTROLS=false \
-            --build-arg NEXT_PUBLIC_STUDY_LAB_LINKS=false \
+            --build-arg NEXT_PUBLIC_STUDY_LAB_LINKS=true \
             --build-arg NEXT_PUBLIC_STUDY_MANIFEST_URL=https://storage.googleapis.com/truco-study-artifacts/releases/20260717-full-225-v1/manifest.json \
             --push \
             --tag "$web_tag" \
@@ -281,7 +281,7 @@ jobs:
             --no-session-affinity \
             --allow-unauthenticated \
             --set-secrets TRUCO_ANON_COOKIE_SECRET=truco-anonymous-cookie-secret:latest \
-            --set-env-vars "NODE_ENV=production,TRUCO_ENGINE_SERVICE_URL=${server_url},TRUCO_ENGINE_SERVICE_AUDIENCE=${server_url},STUDY_LAB_MODE=stealth,STUDY_MANIFEST_URL=https://storage.googleapis.com/truco-study-artifacts/releases/20260717-full-225-v1/manifest.json" \
+            --set-env-vars "NODE_ENV=production,TRUCO_ENGINE_SERVICE_URL=${server_url},TRUCO_ENGINE_SERVICE_AUDIENCE=${server_url},STUDY_LAB_MODE=public,STUDY_MANIFEST_URL=https://storage.googleapis.com/truco-study-artifacts/releases/20260717-full-225-v1/manifest.json" \
             --labels "baixada-component=truco-web,baixada-stack=${DEPLOY_SHA}" \
             --quiet
 
