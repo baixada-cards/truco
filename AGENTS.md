@@ -27,8 +27,9 @@ release contract. It is an integration root, not a source monorepo.
 - Run `make check` and `make verify` for every lock change.
 - Run `make smoke` when the runtime stack changes; Chromium must already be
   installed locally.
-- Run `make test-release` when the release assembler, remote deploy script, or
-  production workflow changes.
+- Run `make check` when the production workflow changes; the deployment
+  contract test asserts the workflow stays manual, dry by default, and free of
+  long-lived credentials.
 - Use `sfw` for public-registry package fetches.
 - Sign commits.
 
