@@ -229,7 +229,8 @@ jobs:
           # The solver opponent memory-maps tens of GB of policy tables from a
           # private bucket through a read-only Cloud Storage FUSE volume, which
           # needs the gen2 execution environment. Only touched pages are read;
-          # the memory limit covers the FUSE process plus the working set.
+          # the memory limit covers the FUSE process plus the working set, and
+          # Cloud Run requires at least 0.5 vCPU for a 1Gi limit.
           test -n "$SOLVER_POLICY_BUCKET"
           gcloud run deploy "$SERVER_SERVICE" \
             --project "$GCP_PROJECT_ID" \
@@ -237,7 +238,7 @@ jobs:
             --image "$SERVER_IMAGE" \
             --service-account "truco-server-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
             --execution-environment gen2 \
-            --cpu 0.25 \
+            --cpu 0.5 \
             --memory 1Gi \
             --concurrency 1 \
             --cpu-throttling \
