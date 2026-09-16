@@ -358,6 +358,25 @@ jobs:
             sleep 2
           done
 
+          # Exercise the study-lab-to-live path end to end. A draft-less seed
+          # is the expensive one: it scores every candidate hand against the
+          # mounted artifacts, so this is what would exceed the request
+          # timeout if the mount regressed. Requiring a posterior result also
+          # proves the tables are actually being read, not silently skipped.
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              --header 'content-type: application/json' \
+              --data '{"humanPlayer":1,"score":{"0":10,"1":10},"dealer":0,"viraRank":"4","botKind":"solver","history":[{"seat":1,"kind":"play_face_up","class":8},{"seat":0,"kind":"play_face_up","class":4}]}' \
+              --output "$RUNNER_TEMP/smoke-seeded.json" \
+              "${web_url}/api/game/session/seeded" &&
+              jq -e '.villainSampling == "posterior"' "$RUNNER_TEMP/smoke-seeded.json" >/dev/null
+            then
+              break
+            fi
+            test "$attempt" -lt 30
+            sleep 2
+          done
+
           trap - ERR
           {
             echo "### Cloud Run production deployment"

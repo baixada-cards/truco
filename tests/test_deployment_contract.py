@@ -42,6 +42,8 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("secrets.BAIXADA_SOLVER_POLICY_BUCKET", self.workflow)
         self.assertIn("/api/game/session/solver-bot", self.workflow)
         self.assertIn(".enabled == true", self.workflow)
+        self.assertIn("/api/game/session/seeded", self.workflow)
+        self.assertIn('.villainSampling == "posterior"', self.workflow)
 
     def test_workflow_smokes_real_session_and_rolls_back_traffic(self) -> None:
         self.assertIn("/api/game/session", self.workflow)

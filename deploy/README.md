@@ -37,7 +37,11 @@ The bucket name is a `production` environment secret. The release id is
 public workflow configuration: bump it only after the new prefix is fully
 published and verified, and never rewrite objects under a mounted prefix,
 because a running instance memory-maps them. The post-deploy smoke test
-requires the solver opponent to report all 225 profiles available.
+requires the solver opponent to report all 225 profiles available, and
+creates a real draft-less seeded match that must come back conditioned on
+the solved strategy rather than on the deal prior alone. That second check
+is what catches a mount which loads but is too slow to serve, since an
+over-long seeded create exceeds the request timeout and fails the smoke.
 
 ## Runtime boundary
 
