@@ -43,6 +43,15 @@ the solved strategy rather than on the deal prior alone. That second check
 is what catches a mount which loads but is too slow to serve, since an
 over-long seeded create exceeds the request timeout and fails the smoke.
 
+Seeding a study position scores every candidate opponent hand against the
+mounted tables, which on a cold instance is dominated by network round
+trips: about 22 seconds, then effectively instant once the pages are
+resident. `SOLVER_POSTERIOR_BUDGET_MS` bounds that work, and its value must
+leave room for a cold pass to finish. A ceiling that aborts partway is worse
+than none: the pages are never read, so the instance repeats the same slow
+partial attempt on every request and keeps reporting the deal prior. The
+server request timeout is set well above the ceiling for the same reason.
+
 ## Runtime boundary
 
 `truco-web` is public. `truco-server` requires IAM authentication and accepts
