@@ -24,6 +24,25 @@ The workflow:
 The licensed cues exist only in the web image and the ephemeral build
 workspace. They are never committed, cached, or uploaded as Actions artifacts.
 
+## Solver policy release
+
+The server plays its solved-strategy opponent from TPB1 policy tables that are
+far too large for a container image. The workflow mounts one immutable
+release prefix of a private bucket (`releases/<SOLVER_POLICY_RELEASE>/`) into
+the server as a read-only Cloud Storage FUSE volume and points
+`SOLVER_POLICY_DIR` at it; the server memory-maps the tables and reads only
+the pages a decision touches. This requires the gen2 execution environment.
+
+The bucket name is a `production` environment secret. The release id is
+public workflow configuration: bump it only after the new prefix is fully
+published and verified, and never rewrite objects under a mounted prefix,
+because a running instance memory-maps them. The post-deploy smoke test
+requires the solver opponent to report all 225 profiles available, and
+creates a real draft-less seeded match that must come back conditioned on
+the solved strategy rather than on the deal prior alone. That second check
+is what catches a mount which loads but is too slow to serve, since an
+over-long seeded create exceeds the request timeout and fails the smoke.
+
 ## Runtime boundary
 
 `truco-web` is public. `truco-server` requires IAM authentication and accepts

@@ -22,13 +22,13 @@
     },
     "bots": {
       "repository": "https://github.com/baixada-cards/truco-bots.git",
-      "revision": "b34a0be135daf20bad67a6872022883a9b2c4b69",
+      "revision": "eb2a1310673bd6dbdb5ebc80ae2c6094d162c84d",
       "version": "0.1.0",
       "role": "runtime"
     },
     "server": {
       "repository": "https://github.com/baixada-cards/truco-server.git",
-      "revision": "bffee18bffd68654defb5d356576603cdfc39b94",
+      "revision": "3be2e443ff6f72f92d77b66ea364b74c0489670d",
       "version": "0.1.0",
       "role": "runtime"
     },
@@ -40,7 +40,7 @@
     },
     "web": {
       "repository": "https://github.com/baixada-cards/truco-web.git",
-      "revision": "7bc341fa6ed8e354edd6ae526d80cec84fd73374",
+      "revision": "420fe18b3c16b08bd83d4e7bbc306ab20963ee91",
       "version": "0.1.0",
       "role": "product"
     }
