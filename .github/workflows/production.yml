@@ -363,8 +363,12 @@ jobs:
           # mounted artifacts, so this is what would exceed the request
           # timeout if the mount regressed. Requiring a posterior result also
           # proves the tables are actually being read, not silently skipped.
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error \
+          # Few attempts with an explicit ceiling: the failure this guards
+          # against is a slow mount, so retrying a request that already ran
+          # long would stall the job rather than report. The first call is
+          # legitimately the cold one and may take tens of seconds.
+          for attempt in $(seq 1 5); do
+            if curl --fail --silent --show-error --max-time 75 \
               --header 'content-type: application/json' \
               --data '{"humanPlayer":1,"score":{"0":10,"1":10},"dealer":0,"viraRank":"4","botKind":"solver","history":[{"seat":1,"kind":"play_face_up","class":8},{"seat":0,"kind":"play_face_up","class":4}]}' \
               --output "$RUNNER_TEMP/smoke-seeded.json" \
@@ -373,7 +377,7 @@ jobs:
             then
               break
             fi
-            test "$attempt" -lt 30
+            test "$attempt" -lt 5
             sleep 2
           done
 
