@@ -69,6 +69,10 @@ jobs:
       GCP_ARTIFACT_REPOSITORY: containers
       SERVER_SERVICE: truco-server
       WEB_SERVICE: truco-web
+      # Immutable solver bot-policy release mounted read-only into the server.
+      # Bump only after the release prefix is fully published and verified.
+      SOLVER_POLICY_RELEASE: 20260915-full-225-v1
+      SOLVER_POLICY_MOUNT: /var/lib/truco/solver-policy
 
     steps:
       - name: Check out repository
@@ -184,6 +188,8 @@ jobs:
           echo "WEB_IMAGE=${registry}/${WEB_SERVICE}@${web_digest}" >> "$GITHUB_ENV"
 
       - name: Deploy, smoke-test, and roll back on failure
+        env:
+          SOLVER_POLICY_BUCKET: ${{ secrets.BAIXADA_SOLVER_POLICY_BUCKET }}
         run: |
           set -euo pipefail
 
@@ -220,14 +226,19 @@ jobs:
           }
           trap rollback ERR
 
+          # The solver opponent memory-maps tens of GB of policy tables from a
+          # private bucket through a read-only Cloud Storage FUSE volume, which
+          # needs the gen2 execution environment. Only touched pages are read;
+          # the memory limit covers the FUSE process plus the working set.
+          test -n "$SOLVER_POLICY_BUCKET"
           gcloud run deploy "$SERVER_SERVICE" \
             --project "$GCP_PROJECT_ID" \
             --region "$GCP_REGION" \
             --image "$SERVER_IMAGE" \
             --service-account "truco-server-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
-            --execution-environment gen1 \
+            --execution-environment gen2 \
             --cpu 0.25 \
-            --memory 512Mi \
+            --memory 1Gi \
             --concurrency 1 \
             --cpu-throttling \
             --no-cpu-boost \
@@ -235,13 +246,16 @@ jobs:
             --max 1 \
             --min-instances 0 \
             --max-instances 1 \
-            --timeout 30s \
+            --timeout 60s \
             --port 8080 \
             --ingress all \
             --no-session-affinity \
             --no-allow-unauthenticated \
+            --clear-volumes \
+            --add-volume "name=solver-policy,type=cloud-storage,bucket=${SOLVER_POLICY_BUCKET},readonly=true,mount-options=only-dir=releases/${SOLVER_POLICY_RELEASE}" \
+            --add-volume-mount "volume=solver-policy,mount-path=${SOLVER_POLICY_MOUNT}" \
             --set-secrets OPENROUTER_API_KEY=truco-openrouter-api-key:latest \
-            --set-env-vars "NODE_ENV=production,TRUCO_SESSION_IDLE_TTL_SECONDS=1800,TRUCO_SESSION_MAX_ACTIVE_PER_SUBJECT=5,TRUCO_SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS=300,TRUCO_SESSION_CREATE_RATE_LIMIT_MAX=10,TRUCO_OPENROUTER_MODEL=google/gemini-3.1-flash-lite,TRUCO_OPENROUTER_REFERER=https://truco.baixada.cards,TRUCO_OPENROUTER_TITLE=Baixada Truco" \
+            --set-env-vars "NODE_ENV=production,TRUCO_SESSION_IDLE_TTL_SECONDS=1800,TRUCO_SESSION_MAX_ACTIVE_PER_SUBJECT=5,TRUCO_SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS=300,TRUCO_SESSION_CREATE_RATE_LIMIT_MAX=10,TRUCO_OPENROUTER_MODEL=google/gemini-3.1-flash-lite,TRUCO_OPENROUTER_REFERER=https://truco.baixada.cards,TRUCO_OPENROUTER_TITLE=Baixada Truco,SOLVER_POLICY_DIR=${SOLVER_POLICY_MOUNT}" \
             --labels "baixada-component=truco-server,baixada-stack=${DEPLOY_SHA}" \
             --quiet
 
@@ -327,6 +341,21 @@ jobs:
               "${web_url}/audio/farol/${audio}" >/dev/null
           done
 
+          # The solver opponent must actually be available from the mounted
+          # release: the first call loads every profile header through the
+          # FUSE volume, so allow the same bounded retry as match creation.
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              --output "$RUNNER_TEMP/smoke-solver.json" \
+              "${web_url}/api/game/session/solver-bot" &&
+              jq -e '.enabled == true and .profiles == 225' "$RUNNER_TEMP/smoke-solver.json" >/dev/null
+            then
+              break
+            fi
+            test "$attempt" -lt 30
+            sleep 2
+          done
+
           trap - ERR
           {
             echo "### Cloud Run production deployment"
@@ -335,5 +364,6 @@ jobs:
             echo "- Server image: \`${SERVER_IMAGE}\`"
             echo "- Web image: \`${WEB_IMAGE}\`"
             echo "- Web service: ${web_url}"
-            echo "- Smoke test: page, real match creation, and five licensed cues passed"
+            echo "- Solver policy release: \`${SOLVER_POLICY_RELEASE}\` (225 profiles mounted)"
+            echo "- Smoke test: page, real match creation, five licensed cues, and solver availability passed"
           } >> "$GITHUB_STEP_SUMMARY"
