@@ -73,6 +73,12 @@ jobs:
       # Bump only after the release prefix is fully published and verified.
       SOLVER_POLICY_RELEASE: 20260915-full-225-v1
       SOLVER_POLICY_MOUNT: /var/lib/truco/solver-policy
+      # Ceiling on posterior candidate scoring for a seeded study-lab match.
+      # It must be high enough for a cold pass to FINISH: aborting partway
+      # leaves the profile's pages unread, so an instance that gives up once
+      # gives up on every later request too, and the range silently stays at
+      # the deal prior. Measured cold on the mounted release: about 22s.
+      SOLVER_POSTERIOR_BUDGET_MS: "40000"
 
     steps:
       - name: Check out repository
@@ -248,7 +254,7 @@ jobs:
             --max 1 \
             --min-instances 0 \
             --max-instances 1 \
-            --timeout 60s \
+            --timeout 120s \
             --port 8080 \
             --ingress all \
             --no-session-affinity \
@@ -257,7 +263,7 @@ jobs:
             --add-volume "name=solver-policy,type=cloud-storage,bucket=${SOLVER_POLICY_BUCKET},readonly=true,mount-options=only-dir=releases/${SOLVER_POLICY_RELEASE}" \
             --add-volume-mount "volume=solver-policy,mount-path=${SOLVER_POLICY_MOUNT}" \
             --set-secrets OPENROUTER_API_KEY=truco-openrouter-api-key:latest \
-            --set-env-vars "NODE_ENV=production,TRUCO_SESSION_IDLE_TTL_SECONDS=1800,TRUCO_SESSION_MAX_ACTIVE_PER_SUBJECT=5,TRUCO_SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS=300,TRUCO_SESSION_CREATE_RATE_LIMIT_MAX=10,TRUCO_OPENROUTER_MODEL=google/gemini-3.1-flash-lite,TRUCO_OPENROUTER_REFERER=https://truco.baixada.cards,TRUCO_OPENROUTER_TITLE=Baixada Truco,SOLVER_POLICY_DIR=${SOLVER_POLICY_MOUNT}" \
+            --set-env-vars "NODE_ENV=production,TRUCO_SESSION_IDLE_TTL_SECONDS=1800,TRUCO_SESSION_MAX_ACTIVE_PER_SUBJECT=5,TRUCO_SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS=300,TRUCO_SESSION_CREATE_RATE_LIMIT_MAX=10,TRUCO_OPENROUTER_MODEL=google/gemini-3.1-flash-lite,TRUCO_OPENROUTER_REFERER=https://truco.baixada.cards,TRUCO_OPENROUTER_TITLE=Baixada Truco,SOLVER_POLICY_DIR=${SOLVER_POLICY_MOUNT},TRUCO_SEED_POSTERIOR_BUDGET_MS=${SOLVER_POSTERIOR_BUDGET_MS}" \
             --labels "baixada-component=truco-server,baixada-stack=${DEPLOY_SHA}" \
             --quiet
 

@@ -45,6 +45,18 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("/api/game/session/seeded", self.workflow)
         self.assertIn('.villainSampling == "posterior"', self.workflow)
 
+    def test_posterior_budget_leaves_room_for_a_cold_pass(self) -> None:
+        budget_ms = int(
+            self.workflow.split("SOLVER_POSTERIOR_BUDGET_MS: \"")[1].split('"')[0]
+        )
+        timeout_s = int(self.workflow.split("--timeout ")[1].split("s")[0])
+        # A cold pass measured about 22s against the mounted release. Aborting
+        # partway is worse than not bounding it at all, because the profile
+        # pages never load and every later request repeats the slow attempt.
+        self.assertGreaterEqual(budget_ms, 30_000)
+        # The request must outlive the ceiling, or the ceiling never applies.
+        self.assertGreater(timeout_s * 1000, budget_ms)
+
     def test_workflow_smokes_real_session_and_rolls_back_traffic(self) -> None:
         self.assertIn("/api/game/session", self.workflow)
         self.assertIn("botKind", self.workflow)
