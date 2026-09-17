@@ -238,6 +238,14 @@ jobs:
           # the memory limit covers the FUSE process plus the working set. gen2
           # does not support fractional CPU, so the server runs on 1 vCPU;
           # billing stays request-based with zero minimum instances.
+          #
+          # The server's concurrency must stay at 1 until seeded match creation
+          # moves off the async runtime. It builds the hand synchronously in
+          # the request handler, which on a cold instance holds the worker for
+          # roughly 20 seconds while the policy pages load. At one request per
+          # instance nothing waits behind it; above one, every other request on
+          # that instance would stall for the same period. The contract test
+          # pins this, so raising it is a deliberate decision, not a typo.
           test -n "$SOLVER_POLICY_BUCKET"
           gcloud run deploy "$SERVER_SERVICE" \
             --project "$GCP_PROJECT_ID" \
