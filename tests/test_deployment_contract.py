@@ -24,6 +24,13 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertNotIn("service-account-key", self.workflow)
 
     def test_workflow_deploys_bounded_private_server_and_public_web(self) -> None:
+        # Concurrency stays at 1 on both services. For the server this is a
+        # correctness constraint, not just a cost one: seeded match creation
+        # runs synchronously on the async runtime and holds the worker for
+        # about 20 seconds on a cold instance, so a second concurrent request
+        # would stall for that whole period. Raising it requires moving that
+        # work onto a blocking thread first.
+        self.assertEqual(self.workflow.count("--concurrency 1"), 2)
         self.assertEqual(self.workflow.count("--max-instances 1"), 2)
         self.assertEqual(self.workflow.count("--min-instances 0"), 2)
         self.assertEqual(self.workflow.count("--max 1"), 2)
